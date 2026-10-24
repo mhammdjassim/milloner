@@ -1,0 +1,64 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Restore Android platform files
+        run: flutter create --platforms=android --org com.example --project-name what_lose --overwrite .
+
+      - name: Verify Android embedding
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          android = Path('android')
+          activities = list(android.rglob('MainActivity.kt'))
+          if not activities:
+              raise SystemExit('MainActivity.kt was not generated')
+          if not any('io.flutter.embedding.android.FlutterActivity' in path.read_text() for path in activities):
+              raise SystemExit('Android v2 FlutterActivity was not found')
+
+          manifest = (android / 'app/src/main/AndroidManifest.xml').read_text()
+          if 'android:name="flutterEmbedding"' not in manifest or 'android:value="2"' not in manifest:
+              raise SystemExit('Android v2 embedding metadata is missing')
+          PY
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: what-lose-android-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
